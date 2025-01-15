@@ -2,6 +2,7 @@
 #include <memory.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 typedef struct {
@@ -33,10 +34,24 @@ typedef struct {
   uint64_t modification_time;
   uint32_t track_ID;
   uint32_t reserved;
+  uint64_t duration;
+  uint64_t __reserved;
   int16_t layer;
   int16_t alternate_group;
   int16_t volume;
+  uint16_t ___reserved;
+  int32_t matrix[9];
+  uint32_t width;
+  uint32_t height;
 } trak_header_box;
+
+typedef struct {
+  uint32_t creation_time;
+  uint32_t modification_time;
+  uint32_t track_ID;
+  uint32_t reserved;
+  uint32_t duration;
+} trak_header_box_v0;
 
 typedef struct {
   mp4_box_header header;
@@ -60,15 +75,31 @@ int read_mp4_box(FILE *mp4_file, mp4_box_header *header) {
 int read_mp4_full_box(FILE *mp4_file, mp4_box_header_full_extension *header) {
   printf("\nreading box: \n");
   fread(header, sizeof(mp4_box_header_full_extension), 1, mp4_file);
-  header->version = bswap_32(header->version);
-  printf("header_version:: %u\n", header->version);
+  printf("header_version:: %x\n", header->version);
   return 0;
 }
 
 int parse_trak_header(FILE *mp4file, trak_header_box *trak_box) {
   read_mp4_full_box(mp4file, &trak_box->fullbox);
-  printf("version::: %u", trak_box->fullbox.version);
-  fseek(mp4file, trak_box->header.size - FULL_BOX_SIZE, SEEK_CUR);
+  int version = trak_box->fullbox.version << 24;
+  printf("version::: %u\n", trak_box->fullbox.version << 24);
+  if(version == 0) {
+    trak_header_box_v0 v0box;
+    fread(&v0box, sizeof(trak_header_box_v0), 1, mp4file);
+    printf("v0 duration::: %lu\n", bswap_64(v0box.duration));
+    printf("v0 reserved::: %lu\n", bswap_64(v0box.reserved));
+    printf("v0 trakid::: %lu\n", bswap_64(v0box.track_ID));
+    printf("v0 creation_time::: %lu\n", bswap_64(v0box.creation_time));
+    exit(0);
+    return 0;
+  }else {
+    
+  }
+  fread(&trak_box->creation_time, trak_box->header.size - sizeof(trak_header_box), 0, mp4file);
+  printf("duration::: %lu\n", bswap_64(trak_box->duration));
+  printf("reserved::: %lu\n", bswap_64(trak_box->reserved));
+  printf("creation_time::: %lu\n", bswap_64(trak_box->creation_time));
+  fseek(mp4file, trak_box->header.size - sizeof(trak_header_box), SEEK_CUR);
   return 0;
 }
 
@@ -146,7 +177,7 @@ int parse_mp4(const char *filename) {
 
   // Time to read some data
   uint32_t box_size;
-  char box_name[4];
+  char box_name[4] 
   printf("current file position:: %ld\n", ftell(mp4file));
 
   fread(&box_size, sizeof(box_size), 1, mp4file);
