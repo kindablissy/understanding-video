@@ -2,7 +2,6 @@
 #include <memory.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 typedef struct {
@@ -11,10 +10,10 @@ typedef struct {
 } mp4_box_header;
 
 typedef struct {
-  uint32_t size;
-  char type[4];
   uint32_t version;
-} mp4_box_header_full;
+} mp4_box_header_full_extension;
+
+const unsigned long FULL_BOX_SIZE = sizeof(mp4_box_header) + sizeof(mp4_box_header_full_extension);
 
 // first 4 bytes unsigned offset
 // next 4  bytes = "ftype"
@@ -28,7 +27,8 @@ typedef struct {
 } mp4_file_header;
 
 typedef struct {
-  mp4_box_header_full header;
+  mp4_box_header header;
+  mp4_box_header_full_extension fullbox;
   uint64_t creation_time;
   uint64_t modification_time;
   uint32_t track_ID;
@@ -46,6 +46,7 @@ typedef struct {
 
 const char MOVIE_DATA_HEADER[4] = {'m', 'o', 'o', 'v'};
 const char TRAK_DATA_HEADER[4] = {'t', 'r', 'a', 'k'};
+const char TRAK_HEADER_HEADER[4] = {'t', 'k', 'h', 'd'};
 
 int read_mp4_box(FILE *mp4_file, mp4_box_header *header) {
   printf("\nreading box: \n");
@@ -56,45 +57,30 @@ int read_mp4_box(FILE *mp4_file, mp4_box_header *header) {
   return 0;
 }
 
-int read_mp4_full_box(FILE *mp4_file, mp4_box_header_full *header) {
+int read_mp4_full_box(FILE *mp4_file, mp4_box_header_full_extension *header) {
   printf("\nreading box: \n");
-  fread(header, sizeof(mp4_box_header_full), 1, mp4_file);
-  header->size = bswap_32(header->size);
+  fread(header, sizeof(mp4_box_header_full_extension), 1, mp4_file);
   header->version = bswap_32(header->version);
-  printf("header_size:: %u\n", header->size);
-  printf("header_name %s\n", header->type);
+  printf("header_version:: %u\n", header->version);
   return 0;
 }
 
 int parse_trak_header(FILE *mp4file, trak_header_box *trak_box) {
-  read_mp4_full_box(mp4file, &trak_box->header);
-  printf("version::: %u", trak_box->header.version);
-  fseek(mp4file, trak_box->header.size - sizeof(mp4_box_header_full), SEEK_CUR);
+  read_mp4_full_box(mp4file, &trak_box->fullbox);
+  printf("version::: %u", trak_box->fullbox.version);
+  fseek(mp4file, trak_box->header.size - FULL_BOX_SIZE, SEEK_CUR);
   return 0;
 }
 
 int parse_trak(FILE *mp4file, trak_data_box *trak_data_box) {
-  parse_trak_header(mp4file, &trak_data_box->trak_header);
+  //parse_trak_header(mp4file, &trak_data_box->trak_header);
   return 0;
 }
 
 // assuming that the file has already been at the correct position;
 int parse_moov(FILE *mp4file, mp4_box_header header) {
   // read all the block at once; (for now);
-  unsigned long current_position = ftell(mp4file);
-  printf("reading moov %ld", current_position);
-  while (ftell(mp4file) < current_position + header.size - 8) {
-    mp4_box_header smaller_box_header;
-    read_mp4_box(mp4file, &smaller_box_header);
-    if(memcmp(smaller_box_header.type, TRAK_DATA_HEADER, 4)) {
-      trak_data_box thb;
-      parse_trak(mp4file, &thb);
-    }else {
-      fseek(mp4file, smaller_box_header.size - sizeof(smaller_box_header),
-            SEEK_CUR);
-    }
-    printf("[moov]:: current file position:: %ld\n", ftell(mp4file));
-  }
+  // pass through for other boxes
   return 0;
 }
 
@@ -125,7 +111,17 @@ int parse_mp4(const char *filename) {
 
     if (memcmp(header.type, MOVIE_DATA_HEADER, 4) == 0) {
       parse_moov(mp4file, header);
-    } else {
+    }
+    else if (memcmp(header.type, TRAK_DATA_HEADER, 4) == 0) {
+      trak_data_box trak_data_box;
+      parse_trak(mp4file, &trak_data_box);
+    }
+    else if (memcmp(header.type, TRAK_HEADER_HEADER, 4) == 0) {
+      trak_header_box header_box;
+      header_box.header = header;
+      parse_trak_header(mp4file, &header_box);
+    }
+    else {
       fseek(mp4file, header.size - sizeof(header), SEEK_CUR);
     }
     printf("current file position:: %ld\n", ftell(mp4file));
