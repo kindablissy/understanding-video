@@ -46,6 +46,10 @@ typedef struct {
 } trak_header_box;
 
 typedef struct {
+  mp4_box_header header;
+} mdia_box;
+
+typedef struct {
   uint32_t creation_time;
   uint32_t modification_time;
   uint32_t track_ID;
@@ -62,6 +66,11 @@ typedef struct {
 const char MOVIE_DATA_HEADER[4] = {'m', 'o', 'o', 'v'};
 const char TRAK_DATA_HEADER[4] = {'t', 'r', 'a', 'k'};
 const char TRAK_HEADER_HEADER[4] = {'t', 'k', 'h', 'd'};
+const char MEDIA_BOX_HEADER[4] = {'m', 'd', 'i', 'a'};
+const char MEDIA_HEADER_HEADER[4] = {'m', 'd', 'h', 'd'};
+const char MEDIA_INF_HEADER[4] = {'m', 'i', 'n', 'f'};
+const char DATA_INF_HEADER[4] = {'d', 'i', 'n', 'f'};
+const char SAMPLE_TABLE_HEADER[4] = {'s', 't', 'b', 'l'};
 
 int read_mp4_box(FILE *mp4_file, mp4_box_header *header) {
   printf("\nreading box: \n");
@@ -72,10 +81,15 @@ int read_mp4_box(FILE *mp4_file, mp4_box_header *header) {
   return 0;
 }
 
+
 int read_mp4_full_box(FILE *mp4_file, mp4_box_header_full_extension *header) {
   printf("\nreading box: \n");
   fread(header, sizeof(mp4_box_header_full_extension), 1, mp4_file);
   printf("header_version:: %x\n", header->version);
+  return 0;
+}
+
+int parse_mdia_box(FILE *mp4file, mp4_box_header *header) {
   return 0;
 }
 
@@ -86,20 +100,26 @@ int parse_trak_header(FILE *mp4file, trak_header_box *trak_box) {
   if(version == 0) {
     trak_header_box_v0 v0box;
     fread(&v0box, sizeof(trak_header_box_v0), 1, mp4file);
-    printf("v0 duration::: %lu\n", bswap_64(v0box.duration));
-    printf("v0 reserved::: %lu\n", bswap_64(v0box.reserved));
-    printf("v0 trakid::: %lu\n", bswap_64(v0box.track_ID));
-    printf("v0 creation_time::: %lu\n", bswap_64(v0box.creation_time));
-    exit(0);
-    return 0;
+    trak_box->track_ID = bswap_32(v0box.track_ID);
+    trak_box->duration = bswap_32(v0box.duration);
+    trak_box->reserved = bswap_32(v0box.reserved);
+    trak_box->creation_time = bswap_32(v0box.creation_time);
+    trak_box->modification_time = bswap_32(v0box.modification_time);
+    printf("v0 duration::: %u\n", bswap_32(v0box.duration));
+    printf("v0 reserved::: %u\n", bswap_32(v0box.reserved));
+    printf("v0 trakid::: %u\n", bswap_32(v0box.track_ID));
+    printf("v0 creation_time::: %u\n", bswap_32(v0box.creation_time));
   }else {
     
   }
-  fread(&trak_box->creation_time, trak_box->header.size - sizeof(trak_header_box), 0, mp4file);
-  printf("duration::: %lu\n", bswap_64(trak_box->duration));
-  printf("reserved::: %lu\n", bswap_64(trak_box->reserved));
-  printf("creation_time::: %lu\n", bswap_64(trak_box->creation_time));
-  fseek(mp4file, trak_box->header.size - sizeof(trak_header_box), SEEK_CUR);
+  fread(&trak_box->__reserved,
+        sizeof(uint64_t) + sizeof(int16_t) * 4 + sizeof(trak_box->matrix) + sizeof(trak_box->height) * 2,
+        1, mp4file);
+  printf("volume::: %u\n", bswap_16(trak_box->volume));
+  printf("matrix::: %u\n", bswap_32(trak_box->matrix[4]));
+  printf("width::: %u\n", bswap_32(trak_box->width << 16));
+  printf("height::: %u\n", bswap_32(trak_box->height << 16));
+  printf("current position::: %lu\n", ftell(mp4file));
   return 0;
 }
 
@@ -136,6 +156,7 @@ int parse_mp4(const char *filename) {
 
   while (ftell(mp4file) < file_size) {
     mp4_box_header header;
+    unsigned long extension = 0;
     read_mp4_box(mp4file, &header);
     printf("databox size: %u\n", header.size);
     printf("databox name:: %s\n", header.type); /* mdat box */
@@ -151,9 +172,18 @@ int parse_mp4(const char *filename) {
       trak_header_box header_box;
       header_box.header = header;
       parse_trak_header(mp4file, &header_box);
+      extension = sizeof(mp4_box_header_full_extension);
+    }
+    else if (memcmp(header.type, MEDIA_BOX_HEADER, 4) == 0) {
+    }
+    else if (memcmp(header.type, MEDIA_INF_HEADER, 4) == 0) {
+    }
+    else if (memcmp(header.type, DATA_INF_HEADER, 4) == 0) {
+    }
+    else if (memcmp(header.type, SAMPLE_TABLE_HEADER, 4) == 0) {
     }
     else {
-      fseek(mp4file, header.size - sizeof(header), SEEK_CUR);
+      fseek(mp4file, header.size - sizeof(header) - extension, SEEK_CUR);
     }
     printf("current file position:: %ld\n", ftell(mp4file));
   }
